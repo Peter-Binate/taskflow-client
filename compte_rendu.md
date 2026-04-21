@@ -21,6 +21,9 @@
 **Base de données Supabase :**
 ![Base de données Supabase](./image/image.webp)
 
+**Ressources Azure :**
+![Ressources Azure](./image/azure.webp)
+
 **Configuration de l'environnement :**
 ![Variables d'environnement](./image/env.png)
 
