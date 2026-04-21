@@ -96,3 +96,103 @@ $ node peter-actions.js
 ```
 
 > 📸 _Insérez ici une capture d'écran de la boîte de réception mail montrant le message reçu depuis TaskFlow / Resend ou l'output de la console côté Azure Function montrant le traitement du webhook._
+
+<br>
+
+# 4: Azure Functions — Notifications par email
+
+## Les choix techniques faits
+
+- **Azure Functions (HTTP Trigger)** : Choisi pour gérer l'exécution _serverless_ de la logique d'envoi d'e-mail. La fonction se réveille uniquement lors de la réception d'un événement (Webhook), minimisant ainsi les coûts et séparant cette logique asynchrone du backend principal.
+- **Node.js** : Langage d'écriture de la fonction, garantissant une bonne cohérence technique avec le reste de l'écosystème du projet.
+- **Supabase Webhooks** : Utilisé pour déclencher de manière automatique un appel HTTP POST vers la fonction Azure dès qu'une modification (`UPDATE`) a lieu sur la table `tasks`.
+- **Resend** : Service transactionnel retenu pour son SDK Node.js intuitif, permettant l'envoi facile et performant des emails d'alerte d'assignation.
+
+---
+
+## Les URLs des services déployés
+
+- **Supabase URL** : `https://vhccaaizwicoqvqsjzyw.supabase.co`
+- **Function App Webhook (Azure)** : _[À compléter par l'URL de votre fonction Azure une fois déployée sur le cloud, ex: https://fn-taskflow-amine.azurewebsites.net/api/notify-assigned]_
+
+---
+
+## Les captures d'écran des services qui tournent
+
+**Interface Azure (Function App) :**
+
+> 📸 _Insérez ici une capture d'écran de la console Azure montrant l'application "fn-taskflow-amine" déployée et en status "Running"._
+
+**Configuration du Webhook :**
+
+> 📸 _Insérez ici une capture d'écran de la configuration du Webhook de `notify-assigned` dans l'interface de Supabase._
+
+---
+
+## Ce qui a marché, ce qui a bloqué et comment ça a été résolu
+
+### Ce qui a marché
+
+- L'initialisation du projet en local avec `func init`.
+- La configuration de Supabase pour pousser un payload valide vers le point de terminaison de la fonction (le Webhook call).
+- Le formatage du corps de l'email via le SDK de Resend.
+
+### Ce qui a bloqué
+
+- **Publication de la fonction Microsoft Azure** : Discontinuité avec l'erreur `Can't find app with name "fn-taskflow-amine"` lors de la commande `func azure functionapp publish fn-taskflow-amine` exécutée localement.
+
+### Comment ça a été résolu
+
+- Le problème de publication a été résolu en comprenant que la commande CLI d'Azure Function `publish` sert **uniquement** à déployer du nouveau code vers une instance qui existe déjà sur Azure. La solution de contournement consistait à **créer préalablement la ressource Function App** sur le portail Azure Portal (en s'assurant d'être connecté via `az login`) avant de pousser le code.
+
+---
+
+## Ce que nous avons fait
+
+1. Création du projet Azure Functions et de son déclencheur HTTP (`notify-assigned`).
+2. Récupération et parsing sécurisé de l'objet `req.body` transmis par Supabase afin d'identifier les données relatives à la tâche (Titre, assignement, etc).
+3. Intégration de la clé API de **Resend** comme variable d'environnement pour adresser un mail à l'utilisateur nouvellement assigné avec un résumé de sa tâche.
+4. Identification du blocage sur le déploiement cloud (tentative de publication sur un groupe de ressources manquant).
+
+---
+
+## La commande ou le code clé qui a débloqué
+
+Le code clé pour s'assurer que notre fonction (et l'e-mail via Resend) ne se déclenche que si l'assignation a **réellement** été modifiée, grâce aux données brutes du webhook Supabase (`old_record` et `record`) :
+
+```javascript
+// Extraction des anciennes et nouvelles données depuis le payload de Supabase
+const oldRecord = req.body.old_record || {};
+const newRecord = req.body.record || {};
+
+// On vérifie que c'est bien l'assignation qui a changé pour ce ticket
+if (newRecord.assigned_to && newRecord.assigned_to !== oldRecord.assigned_to) {
+  // L'assignation est nouvelle, nous pouvons appeler l'API de Resend
+  // await resend.emails.send({ ... })
+  context.res = { status: 200, body: "Notification envoyée." };
+} else {
+  // Si d'autres champs de la taskId ont été mis à jour, on ignore l'envoi du mail
+  context.res = { status: 200, body: "Pas de changement d'assignation." };
+}
+```
+
+---
+
+## Une capture d'écran ou un output de terminal
+
+**Output espéré lors d'une publication Azure Azure correcte :**
+
+```bash
+$ func azure functionapp publish fn-taskflow-amine
+Getting site publishing info...
+Preparing archive...
+Uploading 1.2 MB [#####################################################################]
+Upload completed successfully.
+Deployment completed successfully.
+Syncing triggers...
+Functions in fn-taskflow-amine:
+    notify-assigned - [httpTrigger]
+        Invoke url: https://fn-taskflow-amine.azurewebsites.net/api/notify-assigned
+```
+
+> 📸 _Insérez ici une capture d'écran d'un email de notification correspondant à l'alerte effectivement reçu dans votre boîte de messagerie._
