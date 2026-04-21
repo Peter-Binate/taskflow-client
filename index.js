@@ -1,1 +1,1 @@
-console.log("Hello, Imed.js !");
+console.log("Good Morning, Imed.js !");
