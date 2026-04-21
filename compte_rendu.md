@@ -194,6 +194,115 @@ Functions in fn-taskflow-amine:
 
 <br>
 
+# 6: Intégration finale et pipeline complet
+
+## Les choix techniques faits
+
+- **Script E2E unique (`integration.js`)** : centraliser toute la validation dans un seul scénario exécutable pour tester l'ensemble Auth + DB + Functions + Realtime + Notifications.
+- **Client Supabase double session** : ouverture de deux sessions séparées (`Amine` et `Peter`) pour simuler un vrai flux multi-utilisateur.
+- **Bootstrap contrôlé via `SUPABASE_SERVICE_KEY`** : création du projet de test et insertion du owner via un client admin afin d'éviter les blocages RLS pendant la préparation du test.
+- **Fonctions Azure comme point d'entrée métier** : utilisation de `manage-members`, `validate-task`, `project-stats` pour valider la logique serverless réellement déployée.
+
+---
+
+## Les URLs des services déployés
+
+- **Supabase URL** : `https://vhccaaizwicoqvqsjzyw.supabase.co`
+- **Azure Function App Base URL** : `https://fn-taskflow-amine-aeh3fxg5b2b7e2bu.italynorth-01.azurewebsites.net/api`
+- **Endpoints testés** :
+  - `https://fn-taskflow-amine-aeh3fxg5b2b7e2bu.italynorth-01.azurewebsites.net/api/manage-members`
+  - `https://fn-taskflow-amine-aeh3fxg5b2b7e2bu.italynorth-01.azurewebsites.net/api/validate-task`
+  - `https://fn-taskflow-amine-aeh3fxg5b2b7e2bu.italynorth-01.azurewebsites.net/api/project-stats`
+  - `https://fn-taskflow-amine-aeh3fxg5b2b7e2bu.italynorth-01.azurewebsites.net/api/notify-assigned`
+
+---
+
+## Les captures d'écran des services qui tournent
+
+- Capture du **Resource Group Azure** avec `fn-taskflow-amine` et les ressources associées (Italy North).
+- Capture de l'exécution terminal de `node integration.js` montrant la fin `TOUS LES SYSTEMES FONCTIONNELS`.
+- Capture (ou export) des lignes dans `notifications` côté Supabase après assignation des tâches.
+
+---
+
+## Ce qui a marché, ce qui a bloqué et comment ça a été résolu
+
+### Ce qui a marché
+
+- Authentification multi-comptes (`Amine` / `Peter`) via Supabase.
+- Enchaînement complet création projet -> ajout membre -> création tâches -> mise à jour statuts.
+- Calcul des statistiques finales avec un taux de complétion à `100%`.
+- Insertion des notifications côté Peter après assignation.
+
+### Ce qui a bloqué
+
+1. **DNS / URL de Function App incorrecte** (`ENOTFOUND` puis `404`) sur les endpoints métier.
+2. **Crash Azure Functions au chargement** (`require is not defined in ES module scope`) : code CommonJS avec projet configuré en ESM.
+3. **Erreur `500` sur `manage-members`** due à l'absence de `SUPABASE_ANON_KEY` dans les App Settings Azure.
+4. **Refus `400` sur `validate-task`** (`L'utilisateur assigné n'est pas membre du projet`) causé par une vérification membership faite avec un client utilisateur soumis aux règles RLS.
+
+### Comment ça a été résolu
+
+- Publication des fonctions sur la bonne app (`fn-taskflow-amine`) et alignement de `AZURE_FUNCTION_BASE_URL`.
+- Migration des entrées Functions (`index.js`) vers `import` / `export default` (ES Modules).
+- Ajout des variables d'environnement manquantes côté Function App (`SUPABASE_ANON_KEY`).
+- Vérification d'appartenance projet dans `validate-task` via client admin (`SUPABASE_SERVICE_KEY`).
+
+---
+
+## Ce que nous avons fait
+
+1. Création du script `integration.js` dans `taskflow-client` pour jouer un scénario E2E complet.
+2. Adaptation des identifiants de test pour le binôme (`Amine` et `Peter`) dans la phase d'auth.
+3. Validation des routes Azure en réel et publication des fonctions corrigées.
+4. Exécution répétée de `node integration.js` jusqu'à obtention de la fin de scénario avec stats et notifications.
+5. Nettoyage cloud final : suppression du Resource Group Azure pour arrêter la facturation.
+
+---
+
+## La commande ou le code clé qui a débloqué
+
+Commande clé de nettoyage final obligatoire :
+
+```bash
+az group delete --name rg-taskflow --yes --no-wait
+```
+
+Code clé dans l'intégration pour piloter le flux métier via Functions :
+
+```javascript
+const res = await fetch(`${BASE}/validate-task`, {
+  method: 'POST',
+  headers: {
+    Authorization: `Bearer ${amineSession.access_token}`,
+    'Content-Type': 'application/json',
+  },
+  body: JSON.stringify({ project_id: project.id, title, priority: 'medium' }),
+})
+```
+
+---
+
+## Une capture d'écran ou un output de terminal
+
+Output terminal final :
+
+```bash
+$ node integration.js
+━━━ INTEGRATION TASKFLOW ━━━
+✅ Amine et Peter connectes
+✅ Projet cree, Peter ajoute via Azure Function
+✅ 3 taches creees via Azure Function
+✅ Peter a termine toutes les taches
+📊 STATS FINALES:
+  Taches : 3
+  Completion : 100%
+🔔 Notifications Peter: 18
+━━━ FIN - TOUS LES SYSTEMES FONCTIONNELS ━━━
+```
+
+<br>
+
 # 5: Azure Functions — Logique métier
 
 ## Les choix techniques faits
